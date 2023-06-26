@@ -77,6 +77,8 @@
 #include "UserInterface.h"
 #include "ADBMS181x.h"
 #include "ADBMS1818.h"
+#include "ADS1X15.h"
+
 
 /************************* Defines *****************************/
 #define ENABLED 1
@@ -89,7 +91,7 @@
 #define TEMP_IMP 2
 #define CURR_IMP 3
 #define CurrPin A3
-#define CS_PIN_TEMP 49
+#define CS_PIN1 49
 
 /**************** Local Function Declaration *******************/
 void measurement_loop(uint8_t datalog_en);
@@ -126,7 +128,7 @@ void serial_print_hex(uint8_t data);
 char read_hex(void);
 char get_char(void);
 bool voltage_implausibility_check();
-bool voltage_implausibility_check();
+bool temp_implausibility_check();
 /*******************************************************************
   Setup Variables
   The following variables can be modified to configure the software.
@@ -190,26 +192,24 @@ bool FDRF = false; //!< Force Digital Redundancy Failure Bit
 bool DTMEN = true; //!< Enable Discharge Timer Monitor
 bool PSBITS[2] = {false, false}; //!< Digital Redundancy Path Selection//ps-0,1
 
-uint16_t UV_in_V=2.2; //!< Under-voltage Comparison Voltage in volts 
+uint16_t UV_in_V=1.0; //!< Under-voltage Comparison Voltage in volts 
 uint16_t OV_in_V=4.3; //!< Over-voltage Comparison Voltage in volts
 const int CV_CHANNELS = 16;//cv to measured on 16 channels
-const int CT_CHANNELS =8;
 const int IC_CHANNELS = 18;//total 18 channels present on IC
-float voltage[TOTAL_IC][CV_CHANNELS];//16*8 Array to hold cell voltages, skipping the channels where cells are not connected
-float BMS_CV[TOTAL_IC][IC_CHANNELS];//8*12 Array to hold all the values getting from the 6811 without skipping above mentioned channels
+float voltage[TOTAL_IC][CV_CHANNELS];//8*18 Array to hold cell voltages, skipping the channels where cells are not connected
+float BMS_CV[TOTAL_IC][IC_CHANNELS];//8*16 Array to hold all the values getting from the 6811 without skipping above mentioned channels
 //float voltage_timer_array[TOTAL_IC][CV_CHANNELS];
 float VOLTAGE_IMPLAUSIBILITY_DURATION = 500;
 bool  AMS_SD_Volt_Flag;
-float temp[TOTAL_IC][CT_CHANNELS];
 float voltage_timer_array[1][16]{
-{-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1}};
+{-1,-1,-1,-1,-1,-1,-1,-1,
+-1,-1,-1,-1,-1,-1,-1,-1}};
 
 
 const int AMS_FAULT =4;
 const int Precharge=5;
 
-
-//MUX
+//MUX-ADC
 const int S0=8;
 const int S1=9;
 const int S2=10;
@@ -224,6 +224,14 @@ int S0v;
 int S1v;
 int S2v;
 int S3v;
+ADS1115 ADS0(0x48);
+ADS1115 ADS1(0x49);
+int idx = 0;
+
+
+float val0[4] = { 0, 0, 0, 0 };
+float val1[4] = { 0, 0, 0, 0 };
+
 /*!**********************************************************************
   \brief  Initializes hardware and variables
   @return void
@@ -231,6 +239,7 @@ int S3v;
 void setup()
 {
   Serial.begin(115200);
+
   quikeval_SPI_connect();
   spi_enable(SPI_CLOCK_DIV16); // This will set the Linduino to have a 1MHz Clock
   ADBMS1818_init_cfg(TOTAL_IC, BMS_IC);
@@ -244,6 +253,13 @@ void setup()
   ADBMS1818_init_reg_limits(TOTAL_IC, BMS_IC);
  // print_menu();
 
+   ADS0.begin();
+   ADS1.begin();
+   ADS0.setDataRate(7);  // 7 is fastest, but more noise
+   ADS1.setDataRate(7);
+   idx = 0;
+   ADS_request_all();
+  
    pinMode(Precharge,OUTPUT);
    pinMode(A0,INPUT);
    pinMode(A1,INPUT);
@@ -254,12 +270,8 @@ void setup()
    pinMode(S1,OUTPUT);
    pinMode(S2,OUTPUT);
    pinMode(S3,OUTPUT); 
+   pinMode(A0,INPUT);
    
-   pinMode(CS_PIN_TEMP,OUTPUT); //Pin 49 acting as OUTPUT as CS is a OUTPUT Pin. 
-   pinMode(SCK,OUTPUT);
-   pinMode(MISO,INPUT);
-   pinMode(MOSI,OUTPUT);
-   digitalWrite(CS_PIN_TEMP,HIGH);
    SPI.begin(); //Intialize SPI PORT
    
 }
@@ -1705,7 +1717,7 @@ bool voltage_implausibility_check()
     voltage_j=0;
     while(BMS_IC_j<18)
     {
-      if( BMS_IC_j==11 || BMS_IC_j==18){
+      if( BMS_IC_j==11 || BMS_IC_j==17){
         BMS_IC_j++;
       }
       else
@@ -1772,8 +1784,10 @@ bool voltage_implausibility_check()
   return AMS_SD_Volt_Flag;
 }
 
-bool temp_implausibility_check(){
-  for(i=0;i<16;i++){
+bool temp_implausibility_check()
+{
+  
+for(i=0;i<16;i++){
 
   S0v=bitRead(i,0);
   S1v=bitRead(i,1);
@@ -1810,56 +1824,14 @@ bool temp_implausibility_check(){
   digitalWrite(S1,S1v);
   digitalWrite(S2,S2v);
   digitalWrite(S3,S3v);
-//  delay(27);
 
-
- 
-  
- 
-  
-//Serial.print("A0:");Serial.print("Pin:");Serial.print(i);Serial.print(":"); Serial.println(analogRead(A0)* 5/1023.0);
-//  Serial.print("Second Mux:");Serial.print("Pin:");Serial.print(i);Serial.print(":"); Serial.println(analogRead(A1));
-  
-
-//Serial.print("Mux1:"); Serial.print(i);Serial.print(":");Serial.println((readADC(0)*5)/4096.0); 
-//Serial.print("Mux2:");Serial.println((readADC(1)*5)/4096.0);
-//Serial.print("Mux3:");Serial.println((readADC(2)*5)/4096.0);//Reads Channel 0 From MCP3208 and Prints the Value
-//  Serial.print("Third Mux:"); Serial.println(A2);
-//  M4=analogRead(A3);
-//  Serial.print("Fourth Mux:"); Serial.println(A3);
-if (i<8){
-
- temp[0][i]=((readADC(0)*5)/4096.0);
-// temp[i][1]=((readADC(0)*5)/4096.0);
-// temp[i][2]=((readADC(0)*5)/4096.0);
-// temp[i][3]=((readADC(0)*5)/4096.0);
-// temp[i][4]=((readADC(0)*5)/4096.0);
-// temp[i][5]=((readADC(0)*5)/4096.0);
-// temp[i][6]=((readADC(0)*5)/4096.0);
-// temp[i][7]=((readADC(0)*5)/4096.0);
-// 
- 
-
-// Serial.println((readADC(0)*5)/4096.0);
-// Serial.println((readADC(0)*5)/4096.0);
-}
- 
-}
-print_array_temp(temp);
+   while (ADS_read_all());
+   ADS_print_all();
+   ADS_request_all();
 
 }
-
-void print_array_temp(float arr[TOTAL_IC][CT_CHANNELS]){
-  Serial.println("TEMP");
-  for(int row = 0;row<TOTAL_IC;row++){
-    for(int col = 0;col<CT_CHANNELS;col++){
-      Serial.print(arr[row][col],4);
-      Serial.print(" ");
-    }
-    Serial.println();
-  }
-  Serial.println("---");
 }
+
 
 void print_array_large(float arr[TOTAL_IC][IC_CHANNELS]){
   for(int row = 0;row<TOTAL_IC;row++){
@@ -1883,28 +1855,49 @@ void print_array_small(float arr[TOTAL_IC][CV_CHANNELS]){
 }
 
 
-uint16_t readADC(int channel)
+void ADS_request_all()
+{
+  if (ADS0.isConnected()) ADS0.requestADC(idx);
+  if (ADS1.isConnected()) ADS1.requestADC(idx);
+
+}
+
+
+bool ADS_read_all()
+{
+  if (ADS0.isConnected() && ADS0.isBusy()) return true;
+  if (ADS1.isConnected() && ADS1.isBusy()) return true;
+
+  if (ADS0.isConnected()) val0[idx] = ADS0.getValue();
+  if (ADS1.isConnected()) val1[idx] = ADS1.getValue();
+
+  idx++;
+  if (idx < 4)
+  {
+    ADS_request_all();
+    return true;
+  }
+  idx = 0;
+  return false;
+}
+
+
+void ADS_print_all()
 {
 
-  uint16_t output;
-  byte channelBits = channel<<6;
+  // PRINT ALL VALUES OF ADC0
+  for (int i = 0; i < 4; i++)
+  {
+   
+    Serial.print(val0[i]*5/26636.0);
+    Serial.print("\t");
+  }
+  // PRINT ALL VALUES OF ADC1
+  for (int i = 0; i < 4; i++)
+  {
+    Serial.print(val1[i]*5/26636.0);
+    Serial.print("\t");
+  }
+  Serial.println();
 
-
-  digitalWrite(CS_PIN_TEMP, LOW); //Select the Connected MCP3208 by pulling _CS_PIN LOW.
-  if(channel>3)
-    SPI.transfer(B00000111); //Defines Single mode of Operation for the ADC. D2=1 Start Bit. D1=1 Single Ended Mode D0=0 For Channel 0-3. 1 For Channel 4-7
-  else
-    SPI.transfer(B00000110);
-
-  byte msb = SPI.transfer(channelBits); //Transfers 2nd Byte from MCU to MCP3208 which returns  MSB of the read data. 
-  byte lsb = SPI.transfer(0x00);//Transfers 3rd Byte from MCU to MCP3208 which returns  LSB of the read data. 
- 
- 
- digitalWrite(CS_PIN_TEMP,HIGH); //Deselect the Connected MCP3208 by pulling _CS_PIN HIGH.
-  
-  msb = msb & B00001111; // Make all 4 Higher bits of the MSB 0 as 12 Bit Resolution is provided by MCP3208
-  
-  output = msb<<8 | lsb; //Combine MSB with LSB to form the 12 Bit Analog read  Value.
-
-  return output; //Output Value
 }
