@@ -1,8 +1,8 @@
 #include <CAN.h>
 
-#define TX_GPIO_NUM   17  // Connects to CTX
+//#define TX_GPIO_NUM   17  // Connects to CTX
 
-#define RX_GPIO_NUM   16  // Connects to CRX
+//#define RX_GPIO_NUM   16  // Connects to CRX
 
  
 
